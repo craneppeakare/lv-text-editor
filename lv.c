@@ -62,6 +62,7 @@ struct editorConfig {
   int numrows;
   int lncolwidth;
   erow *rows;
+  int sh_len;
   struct cords *searchhistory;
   int dirty;
   char *filename;
@@ -465,23 +466,25 @@ void editorFindCallback(char *query, int key) {
     return;
   }
   
+  E.sh_len = 0;
   free(E.searchhistory);
   int size = 10;
   int si = 0;
   E.searchhistory = malloc(sizeof(struct cords) * size);
 
   for (int i = 0; i < E.numrows; i++) {
-    int j = (E.cy + i) % E.numrows;
-    erow *row = &E.rows[j];
+    erow *row = &E.rows[i];
     char *p_match = strstr(row->chars, query);
-    if (p_match) {
+    while (p_match != NULL) {
+      E.sh_len++;
       E.searchhistory[si].x = p_match - row->chars;
-      E.searchhistory[si].y = j;
+      E.searchhistory[si].y = i;
       si++;
-      if (si > size) {
+      if (si >= size) {
         size *= 2;
         E.searchhistory = realloc(E.searchhistory, sizeof(struct cords) * size);
       }
+      p_match = strstr(p_match + 1, query);
     }
   }
 
@@ -508,6 +511,20 @@ void editorFind() {
     E.coloff = saved_coloff;
     E.rowoff = saved_rowoff;
   }
+}
+
+void editorFindMoveToMatch(int off) {
+  if (E.sh_len == 0) return;
+  int i = 0;
+  while (E.searchhistory[i].y < E.cy
+    || (E.searchhistory[i].y == E.cy && E.searchhistory[i].x < E.cx)) { i++; }
+  i = (i + off + E.sh_len) % E.sh_len;
+
+  E.cx = E.searchhistory[i].x;
+  E.cy = E.searchhistory[i].y;
+  editorUpdateRenderCoords();
+  E.rowoff = E.cy - (E.screenrows / 2);
+  if (E.rowoff < 0) E.rowoff = 0;
 }
 
 /*** append buffer ***/
@@ -641,8 +658,8 @@ void editorDrawStatusBar(struct abuf *ab) {
                      E.filename ? E.filename : "[No Name]", E.numrows,
                      E.dirty ? "(modified) : "");
                      */
-  int len = snprintf(status, sizeof(status), "cx: %d, cy: %d, rx: %d, ry: %d",
-                     E.cx, E.cy, E.rx, E.ry);
+  int len = snprintf(status, sizeof(status), "cx: %d, cy: %d, rx: %d, ry: %d | E.sh_len: %d",
+                     E.cx, E.cy, E.rx, E.ry, E.sh_len);
   int rlen = snprintf(rstatus, sizeof(rstatus), "%d/%d", E.cy +1, E.numrows);
 
   if (len > E.screencols) len = E.screencols;
@@ -852,6 +869,15 @@ void editorProcessKeypress() {
       editorMoveCursor(c);
       break;
 
+    case 'n':
+      editorMoveCursor(ARROW_RIGHT);
+      editorFindMoveToMatch(0);
+      break;
+
+    case 'N':
+      editorFindMoveToMatch(-1);
+      break;
+
     case CTRL_KEY('l'):
     case '\x1b':
       break;
@@ -877,6 +903,7 @@ void initEditor() {
   E.numrows = 0;
   E.lncolwidth = 6;
   E.rows = NULL;
+  E.sh_len = 0;
   E.searchhistory = NULL;
   E.dirty = 0;
   E.filename = NULL;
